@@ -1,0 +1,914 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>十二阶滑动合成</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<!-- loaded as print-only, switched on by script: Google Fonts is blocked in mainland China and must never hold up the page -->
+<link id="fonts" rel="stylesheet" media="print" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap">
+<style>
+/* Layout: a workbench — the board on the left, AI readout and controls on the right; stacks on phones.
+   Tier colours follow metal heating up: cold steel greys, then dull red through orange to white-hot. */
+:root {
+  --bg: #eceef1; --panel: #ffffff; --fg: #1b1f24; --muted: #5f6873; --line: #d3d8de;
+  --well: #c4c9d0; --cell: #dadee3; --accent: #2457c5; --accent-soft: #e1e8f8; --on-accent: #ffffff;
+  --danger: #b3261e;
+  --t1: #b8bec6; --t2: #8e96a0; --t3: #5d6570; --t4: #5a1f17; --t5: #7f2216; --t6: #a82a17;
+  --t7: #cf3d18; --t8: #e8601b; --t9: #f2862a; --t10: #f7ad3d; --t11: #fbd46a; --t12: #fff3c4;
+  --ink-dark: #1b1f24; --ink-light: #ffffff;
+  --num: "Barlow Condensed", "DIN Alternate", "Arial Narrow", system-ui, sans-serif;
+  --text: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #14171b; --panel: #1c2026; --fg: #e7eaee; --muted: #9aa3ad; --line: #2e343c;
+    --well: #0f1215; --cell: #252a31; --accent: #84a9ff; --accent-soft: #1f2b45; --on-accent: #0d1424;
+    --danger: #ff8a80; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #14171b; --panel: #1c2026; --fg: #e7eaee; --muted: #9aa3ad; --line: #2e343c;
+  --well: #0f1215; --cell: #252a31; --accent: #84a9ff; --accent-soft: #1f2b45; --on-accent: #0d1424;
+  --danger: #ff8a80; color-scheme: dark;
+}
+body { background: var(--bg); color: var(--fg); font-family: var(--text); line-height: 1.5; margin: 0; }
+[hidden] { display: none !important; }
+*, *::before, *::after { box-sizing: border-box; }
+.app {
+  max-width: 1000px; margin: 0 auto; display: grid; gap: 20px;
+  padding-block: 20px 40px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.top { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 12px 28px; }
+h1 { margin: 0; font-size: 24px; font-weight: 700; letter-spacing: .02em; text-wrap: balance; }
+h1 small { display: block; font-size: 13px; font-weight: 400; color: var(--muted); letter-spacing: 0; }
+.stats { display: flex; flex-wrap: wrap; gap: 8px 26px; }
+.stat { display: grid; gap: 0; }
+.k { font-size: 12px; color: var(--muted); letter-spacing: .06em; }
+.stat b { font-family: var(--num); font-size: 30px; font-weight: 600; line-height: 1.1; font-variant-numeric: tabular-nums; }
+
+.work { display: grid; grid-template-columns: minmax(0, 460px) minmax(0, 1fr); gap: 28px; align-items: start; }
+@media (max-width: 780px) { .work { grid-template-columns: minmax(0, 1fr); } }
+
+/* keep the whole board on screen in a phone held sideways too */
+.board-wrap { position: relative; display: grid; gap: 10px; min-width: 0; justify-self: center;
+  width: min(100%, 100vh - 150px); width: min(100%, 100svh - 150px); }
+.board {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; padding: 8px;
+  background: var(--well); border-radius: 14px; width: 100%; max-width: 100%; aspect-ratio: 1;
+  touch-action: none; user-select: none; -webkit-user-select: none; cursor: pointer;
+  -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent;
+}
+.board.editing { outline: 2px dashed var(--accent); outline-offset: 3px; cursor: crosshair; }
+.cell { position: relative; background: var(--cell); border-radius: 10px; }
+.tile {
+  position: absolute; inset: 0; border-radius: 10px; display: grid; place-items: center;
+  font-family: var(--num); font-weight: 700; font-size: clamp(30px, 8vw, 50px); line-height: 1;
+  font-variant-numeric: tabular-nums; box-shadow: inset 0 -4px 0 rgb(0 0 0 / .16);
+}
+.tile .pts { position: absolute; right: 7px; bottom: 5px; font-size: 12px; font-weight: 600; opacity: .7; }
+.tile.new { animation: pop .2s ease-out; }
+@keyframes pop { from { transform: scale(.55); opacity: .3; } }
+@media (prefers-reduced-motion: reduce) { .tile.new { animation: none; } }
+.t1 { background: var(--t1); color: var(--ink-dark); } .t2 { background: var(--t2); color: var(--ink-dark); }
+.t3 { background: var(--t3); color: var(--ink-light); } .t4 { background: var(--t4); color: var(--ink-light); }
+.t5 { background: var(--t5); color: var(--ink-light); } .t6 { background: var(--t6); color: var(--ink-light); }
+.t7 { background: var(--t7); color: var(--ink-light); } .t8 { background: var(--t8); color: var(--ink-light); }
+.t9 { background: var(--t9); color: var(--ink-dark); } .t10 { background: var(--t10); color: var(--ink-dark); }
+.t11 { background: var(--t11); color: var(--ink-dark); }
+.t12 { background: var(--t12); color: var(--ink-dark); box-shadow: 0 0 18px rgb(255 205 110 / .75), inset 0 -4px 0 rgb(0 0 0 / .1); }
+.t0 { background: var(--cell); color: var(--muted); }
+
+.over {
+  position: absolute; inset: 0 0 auto 0; aspect-ratio: 1; border-radius: 14px; display: grid; place-content: center;
+  gap: 12px; text-align: center; background: color-mix(in srgb, var(--bg) 82%, transparent); backdrop-filter: blur(2px);
+}
+.over strong { font-size: 22px; color: var(--danger); }
+.log { margin: 0; min-height: 3em; font-size: 14px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+.side { display: grid; gap: 22px; min-width: 0; }
+.ai { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; display: grid; gap: 12px; }
+.ai-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.ai-head .k { white-space: nowrap; }
+#aiBest { font-size: 28px; font-weight: 700; color: var(--accent); }
+.ai-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.ai-list li { display: grid; grid-template-columns: 4.5em 1fr 3em; align-items: center; gap: 10px; font-size: 14px; }
+.bar { height: 8px; border-radius: 4px; background: var(--accent-soft); overflow: hidden; }
+.bar i { display: block; height: 100%; background: var(--accent); border-radius: 4px; opacity: .45; }
+.ai-list li.top .bar i { opacity: 1; }
+.ai-list li.top { font-weight: 700; }
+.ai-list li.off { color: var(--muted); }
+.ai-list .tag { font-size: 12px; color: var(--muted); text-align: right; }
+.ai-list li.top .tag { color: var(--accent); }
+
+.group { display: grid; gap: 10px; }
+.group h2 { margin: 0; font-size: 12px; font-weight: 500; color: var(--muted); letter-spacing: .06em; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; }
+button {
+  font: inherit; font-size: 14px; padding: 8px 14px; border-radius: 8px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--panel); color: var(--fg);
+}
+.new-game { align-self: center; }
+button:hover { border-color: var(--accent); }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button[aria-pressed="true"], button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+button.primary { font-weight: 700; }
+.dpad { display: grid; grid-template-columns: repeat(3, 64px); grid-auto-rows: 48px; gap: 6px;
+  grid-template-areas: ". up ." "left skip right" ". down ."; }
+.dpad button { padding: 0; font-size: 18px; }
+.dpad [data-act="skip"] { font-size: 13px; }
+.dpad button.best { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
+.hint { margin: 0; font-size: 13px; color: var(--muted); }
+.palette { display: flex; flex-wrap: wrap; gap: 6px; }
+.palette button { width: 40px; height: 40px; padding: 0; font-family: var(--num); font-size: 19px; font-weight: 700; border: 2px solid transparent; }
+.palette button.sel { border-color: var(--fg); }
+.cell.doubt::after {
+  content: "?"; position: absolute; inset: 3px; z-index: 1; pointer-events: none; border-radius: 8px;
+  border: 3px dashed var(--danger); box-shadow: inset 0 0 0 2px rgb(255 255 255 / .55);
+  display: grid; place-items: start; padding: 2px 7px; font-weight: 700; color: var(--danger);
+}
+.shot-msg { margin: 0; font-size: 14px; }
+.shot-msg.bad { color: var(--danger); }
+.shot-view { width: 100%; max-width: 100%; height: auto; border-radius: 8px; border: 1px solid var(--line); }
+details { font-size: 14px; }
+summary { cursor: pointer; color: var(--muted); }
+details ol { margin: 10px 0 0; padding-left: 1.3em; display: grid; gap: 4px; max-width: 65ch; }
+details .note { color: var(--muted); }
+</style>
+
+<div class="app">
+  <header class="top">
+    <h1>十二阶滑动合成<small>4×4 棋盘，同阶装备相撞合成升一阶，最高 12 阶</small></h1>
+    <div class="stats">
+      <div class="stat"><span class="k">本局积分</span><b id="score">0</b></div>
+      <div class="stat"><span class="k">回合（地火精）</span><b id="rounds">0</b></div>
+      <div class="stat"><span class="k">每回合均分</span><b id="avg">–</b></div>
+      <div class="stat"><span class="k">最高阶</span><b id="maxTier">–</b></div>
+      <button id="newGame" type="button" class="new-game">新开一局</button>
+    </div>
+  </header>
+
+  <main class="work">
+    <section class="board-wrap">
+      <div id="board" class="board" role="grid" aria-label="棋盘：方向键或滑动移动，点击跳过"></div>
+      <div id="over" class="over" hidden>
+        <strong>陷入瓶颈</strong>
+        <span id="overText"></span>
+        <div class="row" style="justify-content:center"><button id="again" type="button">再来一局</button></div>
+      </div>
+      <p id="log" class="log" aria-live="polite"></p>
+    </section>
+
+    <aside class="side">
+      <section class="ai" aria-label="AI 建议">
+        <div class="ai-head"><span class="k">AI 建议下一步</span><span id="aiNote" class="k"></span></div>
+        <div id="aiBest">…</div>
+        <ol id="aiList" class="ai-list"></ol>
+        <div class="row">
+          <button id="shotBtn" type="button" class="primary">读截图</button>
+          <button id="liveBtn" type="button" aria-pressed="false" hidden>实时识别投屏</button>
+          <button id="aiStep" type="button">按建议走一步</button>
+          <button id="aiAuto" type="button" aria-pressed="false">AI 自动玩</button>
+        </div>
+        <p id="shotMsg" class="shot-msg" aria-live="polite" hidden></p>
+      </section>
+
+      <section class="group">
+        <h2>操作</h2>
+        <div class="dpad">
+          <button type="button" data-act="up" style="grid-area:up" aria-label="上滑">↑</button>
+          <button type="button" data-act="left" style="grid-area:left" aria-label="左滑">←</button>
+          <button type="button" data-act="skip" style="grid-area:skip">跳过</button>
+          <button type="button" data-act="right" style="grid-area:right" aria-label="右滑">→</button>
+          <button type="button" data-act="down" style="grid-area:down" aria-label="下滑">↓</button>
+        </div>
+        <p class="hint">键盘方向键或 WASD，触屏在棋盘上滑动。点一下棋盘或按空格 = 跳过（不滑动，直接刷新）。</p>
+      </section>
+
+      <section class="group">
+        <h2>照着手机摆棋盘</h2>
+        <div class="row">
+          <button id="editToggle" type="button" aria-pressed="false">摆棋盘</button>
+        </div>
+        <input id="shotInput" type="file" accept="image/*" hidden>
+        <p class="hint">截一张游戏画面，点上面的“读截图”选图；电脑上也可以直接粘贴（⌘V）或把图拖进页面。在 Mac 上用 Chrome 打开本地版时，还可以点“实时识别投屏”，选手机投屏窗口（iPhone 镜像或 scrcpy），棋盘一变建议就自动更新。下面会显示识别到的棋盘位置：绿框是认准的，红框是没把握的。</p>
+        <canvas id="shotView" class="shot-view" hidden></canvas>
+        <div id="editBox" class="group" hidden>
+          <div id="palette" class="palette" aria-label="选择要填的阶数"></div>
+          <div class="row"><button id="clear" type="button">清空棋盘</button></div>
+          <p class="hint">选一个阶数，点格子填进去。摆棋盘时滑动只移动、不刷新、不计分：手机上滑完以后，这里同样滑一下，再把新刷出的 1–2 个装备点上，就能一直跟着手机看建议。</p>
+        </div>
+      </section>
+
+      <details>
+        <summary>规则与假设</summary>
+        <ol>
+          <li>4×4 棋盘，装备 1–12 阶，12 阶不再合成。</li>
+          <li>每回合开始在空格里随机刷出 1–2 个 1 阶或 2 阶装备。<span class="note">刷 1 个/2 个、刷 1 阶/2 阶的概率游戏没公布，这里按各 50% 算。</span></li>
+          <li>每回合消耗 1 个地火精：上下左右滑动，或点棋盘跳过。<span class="note">假设跳过也消耗 1 个。</span></li>
+          <li>连锁合成：合成后前方还是同阶，就继续合。例：一行 1 1 2 3 往左滑，会一路合成一个 4 阶（合成 3 次）。</li>
+          <li>刷出或合成出 k 阶装备得 2<sup>k</sup> 分（1 阶 2 分 … 12 阶 4096 分）。一次滑动合成 n≥2 次，另加连击分：2–12 连击依次 3、5、7、9、11、13、15、17、19、25、30。</li>
+          <li>满盘且四个方向都合不了，就是陷入瓶颈，本局结束（不考虑辅助功能）。</li>
+        </ol>
+        <p class="hint" style="margin-top:10px">AI 往后推演 3 回合（棋盘快满时 4 回合），把随机刷新按概率加权，局面按空格数、大数是否沿边排好、相邻能不能合来打分，选期望最好的一步。</p>
+      </details>
+    </aside>
+  </main>
+</div>
+
+<script id="engine">
+// Rules + AI. Pure functions, no DOM: test.js runs this block in node.
+const Engine = (() => {
+  const MAX = 12;
+  // shortcut: the game does not publish spawn odds, guessed 50/50; change once observed in the real game
+  const P_TWO = 0.5, P_TIER2 = 0.5;
+  const COMBO = [0, 0, 3, 5, 7, 9, 11, 13, 15, 17, 19, 25, 30];
+  const DIRS = ['up', 'down', 'left', 'right'];
+  const ACTS = [...DIRS, 'skip'];
+
+  // Every possible line of 4 cells (4 bits each, index 0 = the end tiles slide toward), precomputed.
+  const OUT = new Uint16Array(65536), PTS = new Uint32Array(65536), MRG = new Uint8Array(65536);
+  const HEUR = new Float64Array(65536);
+  for (let i = 0; i < 65536; i++) {
+    const line = [i & 15, i >> 4 & 15, i >> 8 & 15, i >> 12 & 15];
+    const st = [];
+    let pts = 0, m = 0;
+    for (const t of line) {
+      if (!t) continue;
+      st.push(t);
+      // chain rule: a fresh merge keeps merging while the tile ahead has the same tier
+      while (st.length > 1 && st[st.length - 1] === st[st.length - 2] && st[st.length - 1] < MAX) {
+        const v = st.pop() + 1;
+        st[st.length - 1] = v;
+        pts += 2 ** v;
+        m++;
+      }
+    }
+    OUT[i] = st.reduce((o, t, k) => o | t << 4 * k, 0);
+    PTS[i] = pts;
+    MRG[i] = m;
+    HEUR[i] = lineHeur(line);
+  }
+
+  // Board-quality score of one row or column (weights from the well-known 2048 expectimax AI).
+  function lineHeur(l) {
+    let sum = 0, empty = 0, merges = 0, prev = 0, run = 0;
+    for (const t of l) {
+      sum += t ** 3.5;
+      if (!t) { empty++; continue; }
+      if (t === prev && t < MAX) run++;
+      else { if (run) merges += 1 + run; run = 0; }
+      prev = t;
+    }
+    if (run) merges += 1 + run;
+    let monoA = 0, monoB = 0;
+    for (let k = 1; k < 4; k++) {
+      if (l[k - 1] > l[k]) monoA += l[k - 1] ** 4 - l[k] ** 4;
+      else monoB += l[k] ** 4 - l[k - 1] ** 4;
+    }
+    return 200000 + 270 * empty + 700 * merges - 47 * Math.min(monoA, monoB) - 11 * sum;
+  }
+
+  const LINES = { left: [], right: [], up: [], down: [] };
+  for (let i = 0; i < 4; i++) {
+    LINES.left.push([i * 4, i * 4 + 1, i * 4 + 2, i * 4 + 3]);
+    LINES.right.push([i * 4 + 3, i * 4 + 2, i * 4 + 1, i * 4]);
+    LINES.up.push([i, i + 4, i + 8, i + 12]);
+    LINES.down.push([i + 12, i + 8, i + 4, i]);
+  }
+
+  // Slide the whole board one way. null when nothing moves.
+  function slide(b, dir) {
+    const out = b.slice();
+    let pts = 0, merges = 0, moved = false;
+    for (const L of LINES[dir]) {
+      const i = b[L[0]] | b[L[1]] << 4 | b[L[2]] << 8 | b[L[3]] << 12, o = OUT[i];
+      if (o === i) continue;
+      moved = true;
+      pts += PTS[i];
+      merges += MRG[i];
+      for (let k = 0; k < 4; k++) out[L[k]] = o >> 4 * k & 15;
+    }
+    if (!moved) return null;
+    const combo = COMBO[merges];
+    return { board: out, merges, mergePts: pts, combo, pts: pts + combo };
+  }
+
+  // A slide, or 'skip' (tap the screen: no move, just the next spawn). null when not allowed.
+  function apply(b, a) {
+    if (a !== 'skip') return slide(b, a);
+    return b.includes(0) ? { board: b.slice(), merges: 0, mergePts: 0, combo: 0, pts: 0 } : null;
+  }
+  const actions = b => ACTS.map(a => [a, apply(b, a)]).filter(x => x[1]);
+  const isDead = b => actions(b).length === 0;
+  const empties = b => b.reduce((e, t, i) => (t || e.push(i), e), []);
+
+  // Start-of-round spawn: 1-2 tiles of tier 1 or 2 in random empty cells.
+  function spawn(b, rng = Math.random) {
+    const e = empties(b), out = b.slice(), spawned = [];
+    const n = e.length >= 2 && rng() < P_TWO ? 2 : Math.min(1, e.length);
+    for (let k = 0; k < n; k++) {
+      const cell = e.splice(Math.floor(rng() * e.length), 1)[0], t = rng() < P_TIER2 ? 2 : 1;
+      out[cell] = t;
+      spawned.push([cell, t]);
+    }
+    return { board: out, spawned, pts: spawned.reduce((s, [, t]) => s + 2 ** t, 0) };
+  }
+
+  // Every spawn outcome with its probability: 2n² of them for n empty cells.
+  function outcomes(b) {
+    const e = empties(b), n = e.length, tp = [0, 1 - P_TIER2, P_TIER2], res = [];
+    const pOne = n === 1 ? 1 : 1 - P_TWO;
+    for (const c of e) for (const t of [1, 2]) {
+      const o = b.slice(); o[c] = t; res.push([o, pOne / n * tp[t]]);
+    }
+    const pPair = n >= 2 ? P_TWO / (n * (n - 1) / 2) : 0;
+    for (let x = 0; x < n; x++) for (let y = x + 1; y < n; y++) for (const t of [1, 2]) for (const u of [1, 2]) {
+      const o = b.slice(); o[e[x]] = t; o[e[y]] = u; res.push([o, pPair * tp[t] * tp[u]]);
+    }
+    return res;
+  }
+
+  function evalBoard(b) {
+    let s = 0;
+    for (let i = 0; i < 4; i++) {
+      s += HEUR[b[i * 4] | b[i * 4 + 1] << 4 | b[i * 4 + 2] << 8 | b[i * 4 + 3] << 12]
+         + HEUR[b[i] | b[i + 4] << 4 | b[i + 8] << 8 | b[i + 12] << 12];
+    }
+    return s;
+  }
+
+  function seededRng(b) {
+    let s = b.reduce((h, t) => Math.imul(h ^ t, 16777619) >>> 0, 2166136261);
+    return () => {
+      s = s + 0x6D2B79F5 | 0;
+      let t = Math.imul(s ^ s >>> 15, 1 | s);
+      t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+      return ((t ^ t >>> 14) >>> 0) / 4294967296;
+    };
+  }
+
+  // Expectimax: our move, then the random spawn weighted by probability, `depth` moves deep.
+  // Chance nodes enumerate every spawn when there are few, else average a fixed sample.
+  function best(b, opt = {}) {
+    const acts = actions(b);
+    if (!acts.length) return null;
+    const n = empties(b).length;
+    const depth = opt.depth || (n <= 4 ? 4 : 3); // ≤0.5 s even when tight, where it matters most
+    const W = opt.rewardWeight ?? 1, rootCap = opt.rootCap || 80, deepCap = opt.deepCap || 12;
+    const rng = seededRng(b);
+    const maxNode = (bd, d) => {
+      let v = 0; // a dead board is worth nothing; live boards score around 1.6M
+      for (const [, r] of actions(bd)) v = Math.max(v, W * r.pts + chance(r.board, d));
+      return v;
+    };
+    const chance = (bd, d) => {
+      if (d === 0) return evalBoard(bd);
+      const k = empties(bd).length, cap = d === depth - 1 ? rootCap : deepCap;
+      if (2 * k * k <= cap) return outcomes(bd).reduce((s, [o, p]) => s + p * maxNode(o, d - 1), 0);
+      let s = 0;
+      for (let j = 0; j < cap; j++) s += maxNode(spawn(bd, rng).board, d - 1);
+      return s / cap;
+    };
+    const values = acts.map(([a, r]) => [a, W * r.pts + chance(r.board, depth - 1)]).sort((x, y) => y[1] - x[1]);
+    return { action: values[0][0], values, depth };
+  }
+
+  return { MAX, COMBO, DIRS, ACTS, slide, apply, actions, isDead, spawn, outcomes, evalBoard, best };
+})();
+</script>
+
+<script id="reader">
+// Screenshot → board. Finds the reddish-brown grid, then reads the white digit on each tile's black corner badge.
+const Reader = (() => {
+  // Rescaled/recompressed shots (0.5×–1.8×) read ≤0.03 from their own digit and ≥0.049 from any other.
+  const GX = 6, GY = 9, SURE = 0.04, GAP = 0.015;
+  const dec = s => Float32Array.from(s, c => +c / 9);
+  // Digit shapes (GX×GY mean brightness, 0-9) cut from a real screenshot.
+  const SEEN = {
+    1: '002640036750032550000550000550000550110550221550332551',
+    2: '157741462373220164000273000561002720026300266000587664',
+    3: '157741462373110174001562004851001374110056451165366662',
+    4: '003510016500037200164120461361640372876786333574211371',
+    5: '276662362221450000575420575672220165000056431265476762',
+    7: '466675122274000372000550000730001610104400116200237111',
+    9: '157751472274650056650056375584035861100730213510326211',
+  };
+  // Never seen in a screenshot yet: 6 is the real 9 turned upside down, 8 and 0 are drawn in a look-alike font.
+  // A read that only matches these is flagged for the player to confirm, and the confirmation is remembered.
+  const GUESS = {
+    6: [...SEEN[9]].reverse().join(''),
+    8: '047740385583460064384483179981473374640046572275289982',
+    0: '047740285582560065640046740047640047550055383383169961',
+  };
+  const T = Object.fromEntries(Object.entries({ ...SEEN, ...GUESS }).map(([k, s]) => [k, dec(s)]));
+  const dist = (a, b) => { let s = 0; for (let i = 0; i < a.length; i++) s += (a[i] - b[i]) ** 2; return s / a.length; };
+  const rank = (v, keys) => keys.map(k => ({ k: +k, d: dist(v, T[k]) })).sort((a, b) => a.d - b.d);
+  // Sure only when the closest shape is a digit we have a real sample of, close, and clearly closer than the runner-up.
+  const sure = ([a, b]) => a.k in SEEN && a.d < SURE && (!b || b.d - a.d > GAP);
+  const lum = (d, i) => (d[i] * 3 + d[i + 1] * 6 + d[i + 2]) / 10;
+  const isBrown = (r, g, b) => r > 130 && r < 212 && g > 70 && g < 148 && b > 50 && b < 132 &&
+    r - g > 36 && r - g < 92 && g - b > -10 && g - b < 34;
+
+  // Longest stretch at >= 12% of the peak, bridging short dips such as grid lines.
+  // Low on purpose: a row of four tiles shows only ~25% of an empty row's brown.
+  function span(counts) {
+    let peak = 0;
+    for (const c of counts) peak = Math.max(peak, c);
+    const thr = peak * 0.12, gap = Math.max(2, Math.round(counts.length / 100));
+    let best = [0, -1], s = -1, last = -1e9;
+    counts.forEach((c, i) => {
+      if (c < thr) return;
+      if (i - last > gap + 1) s = i;
+      last = i;
+      if (last - s > best[1] - best[0]) best = [s, last];
+    });
+    return best;
+  }
+
+  function findBoard(img) {
+    const { width: W, height: H, data: d } = img, B = 4;
+    const count = (axisX, lo, hi) => {
+      const n = new Uint32Array(Math.ceil((axisX ? W : H) / B));
+      for (let y = axisX ? lo : 0; y < (axisX ? hi : H); y += 2) {
+        for (let x = axisX ? 0 : lo; x < (axisX ? W : hi); x += 2) {
+          const i = (y * W + x) * 4;
+          if (isBrown(d[i], d[i + 1], d[i + 2])) n[(axisX ? x : y) / B | 0]++;
+        }
+      }
+      return n;
+    };
+    let [x0, x1] = span(count(true, 0, H)).map(v => v * B);
+    const [y0, y1] = span(count(false, x0, x1 + B)).map(v => v * B);
+    [x0, x1] = span(count(true, y0, y1 + B)).map(v => v * B);
+    const box = { x: x0, y: y0, w: x1 + B - x0, h: y1 + B - y0 };
+    const ratio = box.w / box.h;
+    return box.w > W * 0.12 && ratio > 0.8 && ratio < 1.6 ? box : null;
+  }
+
+  // The digits in a cell's top-right badge: white blobs on the black badge. Blur from resizing thins or
+  // fattens strokes, so try a few brightness cut-offs and keep the one whose blobs come out tallest
+  // (pieces of a broken digit are short; a digit merged into the pale tile art is rejected as too big).
+  function badgeGlyphs(img, cx, cy, cw, ch) {
+    let best = [], bestH = 0;
+    for (const t of [190, 170, 150, 210]) {
+      const comps = blobs(img, cx, cy, cw, ch, t);
+      const h = comps.length ? Math.min(...comps.map(c => c.y1 - c.y0)) : 0;
+      if (h > bestH * 1.05) { best = comps; bestH = h; }
+    }
+    return best.map(c => glyphVec(img, c));
+  }
+
+  function blobs(img, cx, cy, cw, ch, cut) {
+    const { width: W, height: H, data: d } = img;
+    const rx0 = Math.max(0, Math.round(cx + cw * 0.4)), rx1 = Math.min(W, Math.round(cx + cw));
+    const ry0 = Math.max(0, Math.round(cy - ch * 0.08)), ry1 = Math.min(H, Math.round(cy + ch * 0.42));
+    const rw = rx1 - rx0, rh = ry1 - ry0, mask = new Uint8Array(rw * rh), seen = new Uint8Array(rw * rh), comps = [];
+    for (let y = 0; y < rh; y++) for (let x = 0; x < rw; x++) {
+      const i = ((y + ry0) * W + x + rx0) * 4, r = d[i], g = d[i + 1], b = d[i + 2];
+      if ((r * 3 + g * 6 + b) / 10 > cut && Math.max(r, g, b) - Math.min(r, g, b) < 60) mask[y * rw + x] = 1;
+    }
+    for (let k = 0; k < rw * rh; k++) {
+      if (!mask[k] || seen[k]) continue;
+      const px = [], stack = [k];
+      let x0 = rw, x1 = 0, y0 = rh, y1 = 0;
+      seen[k] = 1;
+      while (stack.length) {
+        const q = stack.pop(), x = q % rw, y = q / rw | 0;
+        px.push(q);
+        x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
+        for (const n of [x > 0 && q - 1, x < rw - 1 && q + 1, y > 0 && q - rw, y < rh - 1 && q + rw]) {
+          if (n !== false && mask[n] && !seen[n]) { seen[n] = 1; stack.push(n); }
+        }
+      }
+      const h = y1 - y0 + 1, w = x1 - x0 + 1;
+      if (h < ch * 0.08 || h > ch * 0.3 || w > h || x0 === 0 || y0 === 0 || x1 === rw - 1 || y1 === rh - 1) continue;
+      // a digit sits on the black badge; a white blade highlight sits on a bright tile
+      const m = Math.max(2, Math.round(h * 0.2));
+      let s = 0, n = 0;
+      for (let y = Math.max(0, y0 - m); y <= Math.min(rh - 1, y1 + m); y++) for (let x = Math.max(0, x0 - m); x <= Math.min(rw - 1, x1 + m); x++) {
+        if (!mask[y * rw + x]) { s += lum(d, ((y + ry0) * W + x + rx0) * 4); n++; }
+      }
+      if (s / n < 130) comps.push({ x0: x0 + rx0, x1: x1 + rx0, y0: y0 + ry0, y1: y1 + ry0 });
+    }
+    return comps.sort((a, b) => a.x0 - b.x0);
+  }
+
+  // Mean brightness on a GX×GY grid over a fixed-aspect window around the blob (so a thin "1" stays thin),
+  // scaled to the blob's own peak. Averages survive blur far better than a black-and-white cut.
+  function glyphVec(img, { x0, x1, y0, y1 }) {
+    const { width: W, data: d } = img, h = y1 - y0 + 1, w = h * 0.68, left = (x0 + x1 + 1) / 2 - w / 2;
+    let peak = 0;
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) peak = Math.max(peak, lum(d, (y * W + x) * 4));
+    const v = new Float32Array(GX * GY);
+    for (let gy = 0; gy < GY; gy++) for (let gx = 0; gx < GX; gx++) {
+      let s = 0, n = 0;
+      for (let y = Math.floor(y0 + gy * h / GY); y < Math.ceil(y0 + (gy + 1) * h / GY); y++) {
+        for (let x = Math.floor(left + gx * w / GX); x < Math.ceil(left + (gx + 1) * w / GX); x++) {
+          s += Math.min(1, Math.max(0, (lum(d, (y * W + x) * 4) - 60) / (peak - 60))); n++;
+        }
+      }
+      v[gy * GX + gx] = n ? s / n : 0;
+    }
+    return v;
+  }
+
+  const quant = v => Array.from(v, x => Math.min(9, Math.round(x * 9))).join('');
+
+  // Glyphs → tier. learned: [{t, g: [quantised glyph, ...]}] from the player's earlier corrections.
+  function classify(glyphs, learned) {
+    let best = null;
+    for (const e of learned) {
+      if (e.g.length !== glyphs.length) continue;
+      const d = e.g.reduce((s, g, i) => s + dist(glyphs[i], dec(g)), 0) / e.g.length;
+      if (!best || d < best.d) best = { t: e.t, d };
+    }
+    if (best && best.d < SURE / 2) return { tier: best.t, doubt: false };
+    if (glyphs.length === 1) {
+      const r = rank(glyphs[0], ['1', '2', '3', '4', '5', '6', '7', '8', '9']);
+      return { tier: r[0].k, doubt: !sure(r) };
+    }
+    if (glyphs.length === 2) { // 10, 11, 12
+      const r = rank(glyphs[1], ['0', '1', '2']);
+      return { tier: 10 + r[0].k, doubt: dist(glyphs[0], T[1]) >= SURE || !sure(r) };
+    }
+    return { tier: 0, doubt: true };
+  }
+
+  function brownShare(img, x0, y0, w, h) {
+    const { width: W, data: d } = img;
+    let hit = 0, n = 0;
+    for (let y = Math.round(y0); y < y0 + h; y += 2) for (let x = Math.round(x0); x < x0 + w; x += 2) {
+      const i = (y * W + x) * 4;
+      n++;
+      if (isBrown(d[i], d[i + 1], d[i + 2])) hit++;
+    }
+    return hit / n;
+  }
+
+  // Screenshot (Blob/File) → { board, doubt, glyphs, box, bitmap } or { error }.
+  async function read(blob, learned = []) {
+    const bitmap = await createImageBitmap(blob);
+    const cv = document.createElement('canvas');
+    cv.width = bitmap.width;
+    cv.height = bitmap.height;
+    const g = cv.getContext('2d', { willReadFrequently: true });
+    g.drawImage(bitmap, 0, 0);
+    const found = findBoard(g.getImageData(0, 0, cv.width, cv.height));
+    if (!found) return { error: '没在截图里找到棋盘。请截整个游戏画面，让 4×4 棋盘完整露出来。', bitmap };
+    // Redraw the board at the size the digit templates were cut at (board 520 px tall), whatever the phone or compression.
+    const s = 520 / found.h, m = found.h * 0.1;
+    const sx = Math.max(0, found.x - m), sy = Math.max(0, found.y - m);
+    const sw = Math.min(cv.width - sx, found.w + 2 * m), sh = Math.min(cv.height - sy, found.h + 2 * m);
+    const nc = document.createElement('canvas');
+    nc.width = Math.round(sw * s);
+    nc.height = Math.round(sh * s);
+    const ng = nc.getContext('2d', { willReadFrequently: true });
+    ng.imageSmoothingQuality = 'high';
+    ng.drawImage(bitmap, sx, sy, sw, sh, 0, 0, nc.width, nc.height);
+    const img = ng.getImageData(0, 0, nc.width, nc.height);
+    const nb = { x: (found.x - sx) * s, y: (found.y - sy) * s, w: found.w * s, h: found.h * s };
+    const box = found, cw = nb.w / 4, ch = nb.h / 4, board = [], doubt = [], glyphs = [];
+    for (let k = 0; k < 16; k++) {
+      const cx = nb.x + (k & 3) * cw, cy = nb.y + (k >> 2) * ch, gl = badgeGlyphs(img, cx, cy, cw, ch);
+      glyphs.push(gl.map(quant));
+      if (gl.length) {
+        const r = classify(gl, learned);
+        board.push(r.tier); doubt.push(r.doubt);
+      } else { // no digit: an empty cell shows the brown floor, anything else is a tile we failed to read
+        const empty = brownShare(img, cx + cw * 0.25, cy + ch * 0.35, cw * 0.5, ch * 0.5) > 0.4;
+        board.push(0); doubt.push(!empty);
+      }
+    }
+    return { board, doubt, glyphs, box, bitmap };
+  }
+
+  return { read, findBoard, badgeGlyphs };
+})();
+</script>
+
+<script>
+(() => {
+  const E = Engine;
+  const LABEL = { up: '↑ 上滑', down: '↓ 下滑', left: '← 左滑', right: '→ 右滑', skip: '跳过' };
+  const KEYS = { ArrowUp: 'up', w: 'up', W: 'up', ArrowDown: 'down', s: 'down', S: 'down',
+    ArrowLeft: 'left', a: 'left', A: 'left', ArrowRight: 'right', d: 'right', D: 'right', ' ': 'skip' };
+  const STORE = 'merge12-game', LEARN = 'merge12-glyphs';
+  const $ = id => document.getElementById(id);
+  const boardEl = $('board');
+
+  $('fonts').media = 'all';
+  let S, editing = false, paint = 1, lastNew = [], autoTimer = 0, aiTimer = 0;
+  let scan = null; // last screenshot read while laying out the board: { glyphs, doubt } per cell
+
+  const desc = sp => sp.map(([, t]) => t + ' 阶').join('、');
+  function fresh() {
+    const s = E.spawn(Array(16).fill(0));
+    lastNew = s.spawned.map(x => x[0]);
+    return { board: s.board, score: s.pts, rounds: 0, over: false, log: `开局刷出 ${desc(s.spawned)}，+${s.pts}` };
+  }
+  function save() { try { localStorage.setItem(STORE, JSON.stringify(S)); } catch (e) {} }
+  function load() {
+    try {
+      const s = JSON.parse(localStorage.getItem(STORE));
+      return s && Array.isArray(s.board) && s.board.length === 16 ? s : null;
+    } catch (e) { return null; }
+  }
+
+  function act(a) {
+    if (S.over && !editing) return;
+    if (editing && a === 'skip') return;
+    const r = E.apply(S.board, a);
+    if (!r) return;
+    if (editing) { S.board = r.board; lastNew = []; scan = null; return update(); }
+    const s = E.spawn(r.board);
+    S.score += r.pts + s.pts;
+    S.rounds++;
+    S.board = s.board;
+    lastNew = s.spawned.map(x => x[0]);
+    let msg = LABEL[a];
+    if (r.merges) msg += `：合成 ${r.merges} 次 +${r.mergePts}` + (r.combo ? `，${r.merges} 连击 +${r.combo}` : '');
+    S.log = `${msg}　|　刷出 ${desc(s.spawned) || '无'}，+${s.pts}`;
+    S.over = E.isDead(S.board);
+    update();
+  }
+
+  function render() {
+    boardEl.classList.toggle('editing', editing);
+    boardEl.innerHTML = S.board.map((t, i) => `<div class="cell${scan && scan.doubt[i] ? ' doubt' : ''}" data-i="${i}" role="gridcell" aria-label="${t ? t + ' 阶' : '空'}">${
+      t ? `<div class="tile t${t}${lastNew.includes(i) ? ' new' : ''}">${t}<span class="pts">${2 ** t}</span></div>` : ''}</div>`).join('');
+    $('score').textContent = S.score;
+    $('rounds').textContent = S.rounds;
+    $('avg').textContent = S.rounds ? (S.score / S.rounds).toFixed(1) : '–';
+    $('maxTier').textContent = Math.max(...S.board) || '–';
+    $('log').textContent = editing ? '摆棋盘中：滑动只移动，不刷新、不计分。' : S.log;
+    $('over').hidden = !S.over || editing;
+    $('overText').textContent = `本局 ${S.rounds} 回合，${S.score} 分`;
+  }
+
+  // The search runs in a worker so a 0.5-1 s think on a phone never freezes swipes.
+  // Only the newest board is worked on; a request overtaken by a newer one resolves to null.
+  const aiCache = new Map();
+  let aiWant = null;
+  const aiWorker = (() => {
+    try {
+      const glue = `
+        let job = null, busy = false;
+        const run = () => { const j = job; job = null; postMessage({ key: j.key, res: Engine.best(j.board) }); if (job) setTimeout(run); else busy = false; };
+        onmessage = e => { job = e.data; if (!busy) { busy = true; setTimeout(run); } };`;
+      const w = new Worker(URL.createObjectURL(new Blob([$('engine').textContent, glue], { type: 'text/javascript' })));
+      w.onmessage = e => {
+        aiCache.set(e.data.key, e.data.res);
+        if (aiWant && aiWant.key === e.data.key) { aiWant.ok.forEach(f => f(e.data.res)); aiWant = null; }
+      };
+      return w;
+    } catch (e) { return null; } // no workers here: search on the page itself
+  })();
+  function aiFor(board) {
+    const key = board.join(',');
+    if (aiCache.has(key)) return Promise.resolve(aiCache.get(key));
+    if (aiCache.size > 300) aiCache.clear();
+    if (!aiWorker) { aiCache.set(key, E.best(board)); return Promise.resolve(aiCache.get(key)); }
+    return new Promise(ok => {
+      if (!aiWant || aiWant.key !== key) {
+        if (aiWant) aiWant.ok.forEach(f => f(null));
+        aiWant = { key, ok: [] };
+        aiWorker.postMessage({ key, board: board.slice() });
+      }
+      aiWant.ok.push(ok);
+    });
+  }
+  async function showAI() {
+    const key = S.board.join(',');
+    $('aiNote').textContent = '思考中…';
+    const res = await aiFor(S.board);
+    if (S.board.join(',') !== key) return; // the board moved on while thinking
+    document.querySelectorAll('.dpad [data-act]').forEach(b => b.classList.toggle('best', !!res && b.dataset.act === res.action));
+    if (!res) {
+      $('aiBest').textContent = '无路可走';
+      $('aiNote').textContent = '';
+      $('aiList').innerHTML = '';
+      return;
+    }
+    const v = res.values, hi = v[0][1], lo = v[v.length - 1][1];
+    $('aiBest').textContent = LABEL[res.action];
+    $('aiNote').textContent = `推演 ${res.depth} 回合`;
+    const legal = v.map(([a, x], i) => `<li class="${i ? '' : 'top'}"><span>${LABEL[a]}</span><span class="bar"><i style="width:${
+      hi === lo ? 100 : Math.round(8 + 92 * (x - lo) / (hi - lo))}%"></i></span><span class="tag">${i ? '第 ' + (i + 1) : '推荐'}</span></li>`);
+    const off = E.ACTS.filter(a => !v.some(x => x[0] === a))
+      .map(a => `<li class="off"><span>${LABEL[a]}</span><span class="bar"></span><span class="tag">动不了</span></li>`);
+    $('aiList').innerHTML = legal.concat(off).join('');
+  }
+  function update() {
+    render();
+    save();
+    clearTimeout(aiTimer);
+    aiTimer = setTimeout(showAI, 20); // let the board paint before the search runs
+  }
+
+  let auto = false;
+  function stopAuto() {
+    auto = false;
+    clearTimeout(autoTimer);
+    $('aiAuto').setAttribute('aria-pressed', 'false');
+  }
+  async function tick() {
+    if (!auto) return;
+    if (S.over || editing) return stopAuto();
+    const key = S.board.join(','), res = await aiFor(S.board);
+    if (!auto) return;
+    if (S.board.join(',') === key) {
+      if (!res) return stopAuto();
+      act(res.action);
+    }
+    autoTimer = setTimeout(tick, 160);
+  }
+  $('aiAuto').onclick = () => {
+    if (auto) return stopAuto();
+    auto = true;
+    $('aiAuto').setAttribute('aria-pressed', 'true');
+    tick();
+  };
+  $('aiStep').onclick = async () => {
+    const key = S.board.join(','), res = await aiFor(S.board);
+    if (res && S.board.join(',') === key) act(res.action);
+  };
+
+  document.querySelectorAll('.dpad [data-act]').forEach(b => { b.onclick = () => act(b.dataset.act); });
+  addEventListener('keydown', e => {
+    const a = KEYS[e.key];
+    if (!a || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (a === 'skip' && e.target.closest && e.target.closest('button')) return; // space presses the focused button instead
+    e.preventDefault();
+    act(a);
+  });
+
+  // A swipe fires as soon as the finger has travelled 24 px, without waiting for it to lift.
+  let p0 = null;
+  const swipe = (dx, dy) => Math.max(Math.abs(dx), Math.abs(dy)) < 24 ? null
+    : Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up');
+  boardEl.addEventListener('pointerdown', e => { p0 = [e.clientX, e.clientY]; boardEl.setPointerCapture(e.pointerId); });
+  boardEl.addEventListener('pointercancel', () => { p0 = null; });
+  boardEl.addEventListener('pointermove', e => {
+    const dir = p0 && swipe(e.clientX - p0[0], e.clientY - p0[1]);
+    if (dir) { p0 = null; act(dir); }
+  });
+  boardEl.addEventListener('pointerup', e => {
+    if (!p0) return;
+    const [x, y] = p0, dir = swipe(e.clientX - x, e.clientY - y);
+    p0 = null;
+    if (dir) return act(dir);
+    if (!editing) return act('skip');
+    const cell = document.elementFromPoint(x, y)?.closest('.cell');
+    if (!cell) return;
+    const i = +cell.dataset.i;
+    S.board[i] = paint;
+    if (scan) { // the player just told us what this badge says: remember it for next time
+      if (paint && scan.glyphs[i].length) remember(paint, scan.glyphs[i]);
+      scan.doubt[i] = false;
+    }
+    lastNew = [];
+    update();
+  });
+
+  const learned = () => { try { return JSON.parse(localStorage.getItem(LEARN)) || []; } catch (e) { return []; } };
+  function remember(t, g) {
+    try {
+      const key = g.join('|'), list = learned().filter(e => e.g.join('|') !== key);
+      list.push({ t, g });
+      localStorage.setItem(LEARN, JSON.stringify(list.slice(-300)));
+    } catch (e) {}
+  }
+
+  function drawShot(res) {
+    const cv = $('shotView');
+    cv.hidden = !res.bitmap;
+    if (!res.bitmap) return;
+    const s = Math.min(1, 720 / res.bitmap.width), g = cv.getContext('2d');
+    cv.width = Math.round(res.bitmap.width * s);
+    cv.height = Math.round(res.bitmap.height * s);
+    g.drawImage(res.bitmap, 0, 0, cv.width, cv.height);
+    if (!res.box) return;
+    const { x, y, w, h } = res.box;
+    g.lineWidth = 2;
+    for (let k = 0; k < 16; k++) {
+      g.strokeStyle = res.doubt[k] ? '#ff3b30' : '#3ddc84';
+      g.strokeRect((x + (k & 3) * w / 4) * s + 1, (y + (k >> 2) * h / 4) * s + 1, w / 4 * s - 2, h / 4 * s - 2);
+    }
+  }
+
+  function say(text, bad) {
+    const msg = $('shotMsg');
+    msg.hidden = false;
+    msg.className = bad ? 'shot-msg bad' : 'shot-msg';
+    msg.textContent = text;
+  }
+  function applyRead(res) {
+    scan = { glyphs: res.glyphs, doubt: res.doubt.slice() };
+    S.board = res.board;
+    S.over = false;
+    lastNew = [];
+    const n = res.board.filter(Boolean).length, m = res.doubt.filter(Boolean).length;
+    say((live ? '投屏画面：' : '') + `认出 ${n} 个装备` + (m
+      ? `，${m} 格没把握（虚线框）。对的话在下面选同一阶再点一下那格确认，不对就选正确的阶数点上，下次就认得了。`
+      : '，全部有把握，照上面的建议走。'));
+    setEditing(true);
+  }
+  async function readShot(file) {
+    if (!file || !file.type.startsWith('image/')) return;
+    stopLive();
+    say('正在识别…');
+    let res;
+    try { res = await Reader.read(file, learned()); } catch (e) { res = { error: '这张图打不开，换一张截图试试。' }; }
+    drawShot(res);
+    if (res.error) return say(res.error, true);
+    applyRead(res);
+  }
+
+  // Live mode: share the phone-mirroring window (iPhone 镜像 / scrcpy) and re-read it every 0.7 s.
+  // A board is applied only after two identical reads in a row, so frames caught mid-slide are ignored.
+  let live = null;
+  async function startLive() {
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 5 }, audio: false });
+    } catch (e) {
+      return say(e.name === 'NotAllowedError'
+        ? '没拿到共享屏幕的权限。在线版页面不允许共享屏幕，请在 Mac 上用 Chrome 打开本地版；本地版也被拒的话，到“系统设置 → 隐私与安全性 → 录屏与系统录音”里给 Chrome 打开权限。'
+        : '共享屏幕没成功：' + e.message, true);
+    }
+    const video = document.createElement('video');
+    video.muted = true;
+    video.playsInline = true;
+    video.srcObject = stream;
+    await video.play();
+    live = { stream, video, timer: 0, seen: '', shown: '' };
+    stream.getVideoTracks()[0].addEventListener('ended', stopLive);
+    $('liveBtn').setAttribute('aria-pressed', 'true');
+    say('实时识别中：选的窗口里一出现棋盘就会自动识别。');
+    liveTick();
+  }
+  function stopLive() {
+    if (!live) return;
+    clearTimeout(live.timer);
+    live.stream.getTracks().forEach(t => t.stop());
+    live = null;
+    $('liveBtn').setAttribute('aria-pressed', 'false');
+  }
+  async function liveTick() {
+    const now = live;
+    if (!now) return;
+    let res;
+    try { res = await Reader.read(now.video, learned()); } catch (e) { res = { error: '画面读取失败，稍后重试。' }; }
+    if (live !== now) return;
+    if (res.error) {
+      say('实时识别中：画面里还没看到棋盘。请共享投屏窗口，并让棋盘完整露出来。', true);
+      now.seen = '';
+    } else {
+      const key = res.board.join(',');
+      if (key === now.seen && key !== now.shown) { now.shown = key; drawShot(res); applyRead(res); }
+      now.seen = key;
+    }
+    now.timer = setTimeout(liveTick, 700);
+  }
+  if (navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) {
+    $('liveBtn').hidden = false;
+    $('liveBtn').onclick = () => (live ? stopLive() : startLive());
+  }
+  $('shotBtn').onclick = () => $('shotInput').click();
+  $('shotInput').onchange = e => { readShot(e.target.files[0]); e.target.value = ''; };
+  const imageIn = list => [...(list || [])].find(f => f.type.startsWith('image/'));
+  addEventListener('paste', e => { const f = imageIn(e.clipboardData && e.clipboardData.files); if (f) { e.preventDefault(); readShot(f); } });
+  addEventListener('dragover', e => e.preventDefault());
+  addEventListener('drop', e => { const f = imageIn(e.dataTransfer && e.dataTransfer.files); if (f) { e.preventDefault(); readShot(f); } });
+
+  $('palette').innerHTML = Array.from({ length: 13 }, (_, t) =>
+    `<button type="button" class="t${t}${t === paint ? ' sel' : ''}" data-t="${t}" aria-label="${t ? t + ' 阶' : '空格'}">${t || '空'}</button>`).join('');
+  $('palette').onclick = e => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    paint = +b.dataset.t;
+    $('palette').querySelectorAll('button').forEach(x => x.classList.toggle('sel', x === b));
+  };
+  function setEditing(on) {
+    editing = on;
+    stopAuto();
+    if (!on) { scan = null; S.over = E.isDead(S.board); }
+    $('editToggle').setAttribute('aria-pressed', String(on));
+    $('editBox').hidden = !on;
+    update();
+  }
+  $('editToggle').onclick = () => setEditing(!editing);
+  $('clear').onclick = () => { S.board = Array(16).fill(0); lastNew = []; scan = null; update(); };
+  const restart = () => { stopAuto(); stopLive(); scan = null; S = fresh(); update(); };
+  $('newGame').onclick = restart;
+  $('again').onclick = restart;
+
+  window.claude?.hot?.snapshot?.(() => ({ S }));
+  const start = data => { S = data.S || load() || fresh(); update(); };
+  window.claude?.hot?.ready ? window.claude.hot.ready(start) : start(window.claude?.hot?.data ?? {});
+})();
+</script>

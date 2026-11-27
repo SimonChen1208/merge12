@@ -1,0 +1,437 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>十二阶滑动合成 手机版</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<!-- loaded as print-only, switched on by script: Google Fonts is blocked in mainland China and must never hold up the page -->
+<link id="fonts" rel="stylesheet" media="print" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap">
+<style>
+/* Layout: one centred column — stats, board, last move. Swipe to move, tap the board to skip.
+   Tier colours follow metal heating up: cold steel greys, then dull red through orange to white-hot. */
+:root {
+  --bg: #eceef1; --fg: #1b1f24; --muted: #5f6873; --line: #d3d8de; --panel: #ffffff;
+  --well: #c4c9d0; --cell: #dadee3; --danger: #b3261e; --accent: #2457c5; --on-accent: #ffffff;
+  --t1: #b8bec6; --t2: #8e96a0; --t3: #5d6570; --t4: #5a1f17; --t5: #7f2216; --t6: #a82a17;
+  --t7: #cf3d18; --t8: #e8601b; --t9: #f2862a; --t10: #f7ad3d; --t11: #fbd46a; --t12: #fff3c4;
+  --ink-dark: #1b1f24; --ink-light: #ffffff;
+  --num: "Barlow Condensed", "DIN Alternate", "Arial Narrow", system-ui, sans-serif;
+  --text: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #14171b; --fg: #e7eaee; --muted: #9aa3ad; --line: #2e343c; --panel: #1c2026;
+    --well: #0f1215; --cell: #252a31; --danger: #ff8a80; --accent: #84a9ff; --on-accent: #0d1424; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #14171b; --fg: #e7eaee; --muted: #9aa3ad; --line: #2e343c; --panel: #1c2026;
+  --well: #0f1215; --cell: #252a31; --danger: #ff8a80; --accent: #84a9ff; --on-accent: #0d1424; color-scheme: dark;
+}
+html, body { height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--text); line-height: 1.5; overscroll-behavior: none; }
+[hidden] { display: none !important; }
+*, *::before, *::after { box-sizing: border-box; }
+.app {
+  min-height: 100%; display: grid; place-content: center; justify-items: center; gap: 14px; text-align: center;
+  padding-block: 16px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+h1 { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: .02em; text-wrap: balance; }
+.stats { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 22px; }
+.stat { display: grid; }
+.k { font-size: 12px; color: var(--muted); letter-spacing: .06em; }
+.stat b { font-family: var(--num); font-size: 26px; font-weight: 600; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.board-wrap { position: relative; width: min(100vw - 32px, 440px, 100vh - 230px); width: min(100vw - 32px, 440px, 100svh - 230px); }
+.board {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; padding: 8px; width: 100%; aspect-ratio: 1;
+  background: var(--well); border-radius: 14px; touch-action: none; user-select: none; -webkit-user-select: none;
+  -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; cursor: pointer;
+}
+.cell { position: relative; background: var(--cell); border-radius: 10px; }
+.tile {
+  position: absolute; inset: 0; border-radius: 10px; display: grid; place-items: center;
+  font-family: var(--num); font-weight: 700; font-size: clamp(26px, 9vw, 48px); line-height: 1;
+  font-variant-numeric: tabular-nums; box-shadow: inset 0 -4px 0 rgb(0 0 0 / .16);
+}
+.tile .pts { position: absolute; right: 6px; bottom: 4px; font-size: 11px; font-weight: 600; opacity: .7; }
+.tile.new { animation: pop .2s ease-out; }
+@keyframes pop { from { transform: scale(.55); opacity: .3; } }
+@media (prefers-reduced-motion: reduce) { .tile.new { animation: none; } }
+.t1 { background: var(--t1); color: var(--ink-dark); } .t2 { background: var(--t2); color: var(--ink-dark); }
+.t3 { background: var(--t3); color: var(--ink-light); } .t4 { background: var(--t4); color: var(--ink-light); }
+.t5 { background: var(--t5); color: var(--ink-light); } .t6 { background: var(--t6); color: var(--ink-light); }
+.t7 { background: var(--t7); color: var(--ink-light); } .t8 { background: var(--t8); color: var(--ink-light); }
+.t9 { background: var(--t9); color: var(--ink-dark); } .t10 { background: var(--t10); color: var(--ink-dark); }
+.t11 { background: var(--t11); color: var(--ink-dark); }
+.t12 { background: var(--t12); color: var(--ink-dark); box-shadow: 0 0 18px rgb(255 205 110 / .75), inset 0 -4px 0 rgb(0 0 0 / .1); }
+.over {
+  position: absolute; inset: 0; border-radius: 14px; display: grid; place-content: center; gap: 12px;
+  background: color-mix(in srgb, var(--bg) 82%, transparent); backdrop-filter: blur(2px);
+}
+.over strong { font-size: 22px; color: var(--danger); }
+.log { margin: 0; min-height: 1.5em; font-size: 14px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.hint { margin: 0; font-size: 12px; color: var(--muted); }
+button {
+  font: inherit; font-size: 14px; padding: 8px 18px; min-height: 40px; border-radius: 8px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--panel); color: var(--fg);
+  touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+}
+button:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
+button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.row { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+.ai { display: flex; align-items: baseline; justify-content: center; gap: 10px; min-height: 36px; }
+#aiBest { font-size: 26px; font-weight: 700; color: var(--accent); }
+</style>
+
+<div class="app">
+  <h1>十二阶滑动合成</h1>
+  <div class="stats">
+    <div class="stat"><span class="k">本局积分</span><b id="score">0</b></div>
+    <div class="stat"><span class="k">回合</span><b id="rounds">0</b></div>
+    <div class="stat"><span class="k">每回合均分</span><b id="avg">–</b></div>
+    <div class="stat"><span class="k">最高阶</span><b id="maxTier">–</b></div>
+  </div>
+  <div class="board-wrap">
+    <div id="board" class="board" role="grid" aria-label="棋盘：滑动移动，轻点跳过"></div>
+    <div id="over" class="over" hidden>
+      <strong>陷入瓶颈</strong>
+      <span id="overText"></span>
+      <div><button id="again" type="button">再来一局</button></div>
+    </div>
+  </div>
+  <div class="ai" aria-live="polite"><span class="k">AI 建议</span><b id="aiBest">…</b><span id="aiNote" class="k"></span></div>
+  <p id="log" class="log" aria-live="polite"></p>
+  <div class="row">
+    <button id="aiStep" type="button">按建议走一步</button>
+    <button id="aiAuto" type="button" aria-pressed="false">AI 自动玩</button>
+    <button id="newGame" type="button">新开一局</button>
+  </div>
+  <p class="hint">在棋盘上滑动移动，轻点棋盘跳过（不滑动，直接刷新）</p>
+</div>
+
+<script id="engine">
+// Rules + AI. Pure functions, no DOM: test.js runs this block in node.
+const Engine = (() => {
+  const MAX = 12;
+  // shortcut: the game does not publish spawn odds, guessed 50/50; change once observed in the real game
+  const P_TWO = 0.5, P_TIER2 = 0.5;
+  const COMBO = [0, 0, 3, 5, 7, 9, 11, 13, 15, 17, 19, 25, 30];
+  const DIRS = ['up', 'down', 'left', 'right'];
+  const ACTS = [...DIRS, 'skip'];
+
+  // Every possible line of 4 cells (4 bits each, index 0 = the end tiles slide toward), precomputed.
+  const OUT = new Uint16Array(65536), PTS = new Uint32Array(65536), MRG = new Uint8Array(65536);
+  const HEUR = new Float64Array(65536);
+  for (let i = 0; i < 65536; i++) {
+    const line = [i & 15, i >> 4 & 15, i >> 8 & 15, i >> 12 & 15];
+    const st = [];
+    let pts = 0, m = 0;
+    for (const t of line) {
+      if (!t) continue;
+      st.push(t);
+      // chain rule: a fresh merge keeps merging while the tile ahead has the same tier
+      while (st.length > 1 && st[st.length - 1] === st[st.length - 2] && st[st.length - 1] < MAX) {
+        const v = st.pop() + 1;
+        st[st.length - 1] = v;
+        pts += 2 ** v;
+        m++;
+      }
+    }
+    OUT[i] = st.reduce((o, t, k) => o | t << 4 * k, 0);
+    PTS[i] = pts;
+    MRG[i] = m;
+    HEUR[i] = lineHeur(line);
+  }
+
+  // Board-quality score of one row or column (weights from the well-known 2048 expectimax AI).
+  function lineHeur(l) {
+    let sum = 0, empty = 0, merges = 0, prev = 0, run = 0;
+    for (const t of l) {
+      sum += t ** 3.5;
+      if (!t) { empty++; continue; }
+      if (t === prev && t < MAX) run++;
+      else { if (run) merges += 1 + run; run = 0; }
+      prev = t;
+    }
+    if (run) merges += 1 + run;
+    let monoA = 0, monoB = 0;
+    for (let k = 1; k < 4; k++) {
+      if (l[k - 1] > l[k]) monoA += l[k - 1] ** 4 - l[k] ** 4;
+      else monoB += l[k] ** 4 - l[k - 1] ** 4;
+    }
+    return 200000 + 270 * empty + 700 * merges - 47 * Math.min(monoA, monoB) - 11 * sum;
+  }
+
+  const LINES = { left: [], right: [], up: [], down: [] };
+  for (let i = 0; i < 4; i++) {
+    LINES.left.push([i * 4, i * 4 + 1, i * 4 + 2, i * 4 + 3]);
+    LINES.right.push([i * 4 + 3, i * 4 + 2, i * 4 + 1, i * 4]);
+    LINES.up.push([i, i + 4, i + 8, i + 12]);
+    LINES.down.push([i + 12, i + 8, i + 4, i]);
+  }
+
+  // Slide the whole board one way. null when nothing moves.
+  function slide(b, dir) {
+    const out = b.slice();
+    let pts = 0, merges = 0, moved = false;
+    for (const L of LINES[dir]) {
+      const i = b[L[0]] | b[L[1]] << 4 | b[L[2]] << 8 | b[L[3]] << 12, o = OUT[i];
+      if (o === i) continue;
+      moved = true;
+      pts += PTS[i];
+      merges += MRG[i];
+      for (let k = 0; k < 4; k++) out[L[k]] = o >> 4 * k & 15;
+    }
+    if (!moved) return null;
+    const combo = COMBO[merges];
+    return { board: out, merges, mergePts: pts, combo, pts: pts + combo };
+  }
+
+  // A slide, or 'skip' (tap the screen: no move, just the next spawn). null when not allowed.
+  function apply(b, a) {
+    if (a !== 'skip') return slide(b, a);
+    return b.includes(0) ? { board: b.slice(), merges: 0, mergePts: 0, combo: 0, pts: 0 } : null;
+  }
+  const actions = b => ACTS.map(a => [a, apply(b, a)]).filter(x => x[1]);
+  const isDead = b => actions(b).length === 0;
+  const empties = b => b.reduce((e, t, i) => (t || e.push(i), e), []);
+
+  // Start-of-round spawn: 1-2 tiles of tier 1 or 2 in random empty cells.
+  function spawn(b, rng = Math.random) {
+    const e = empties(b), out = b.slice(), spawned = [];
+    const n = e.length >= 2 && rng() < P_TWO ? 2 : Math.min(1, e.length);
+    for (let k = 0; k < n; k++) {
+      const cell = e.splice(Math.floor(rng() * e.length), 1)[0], t = rng() < P_TIER2 ? 2 : 1;
+      out[cell] = t;
+      spawned.push([cell, t]);
+    }
+    return { board: out, spawned, pts: spawned.reduce((s, [, t]) => s + 2 ** t, 0) };
+  }
+
+  // Every spawn outcome with its probability: 2n² of them for n empty cells.
+  function outcomes(b) {
+    const e = empties(b), n = e.length, tp = [0, 1 - P_TIER2, P_TIER2], res = [];
+    const pOne = n === 1 ? 1 : 1 - P_TWO;
+    for (const c of e) for (const t of [1, 2]) {
+      const o = b.slice(); o[c] = t; res.push([o, pOne / n * tp[t]]);
+    }
+    const pPair = n >= 2 ? P_TWO / (n * (n - 1) / 2) : 0;
+    for (let x = 0; x < n; x++) for (let y = x + 1; y < n; y++) for (const t of [1, 2]) for (const u of [1, 2]) {
+      const o = b.slice(); o[e[x]] = t; o[e[y]] = u; res.push([o, pPair * tp[t] * tp[u]]);
+    }
+    return res;
+  }
+
+  function evalBoard(b) {
+    let s = 0;
+    for (let i = 0; i < 4; i++) {
+      s += HEUR[b[i * 4] | b[i * 4 + 1] << 4 | b[i * 4 + 2] << 8 | b[i * 4 + 3] << 12]
+         + HEUR[b[i] | b[i + 4] << 4 | b[i + 8] << 8 | b[i + 12] << 12];
+    }
+    return s;
+  }
+
+  function seededRng(b) {
+    let s = b.reduce((h, t) => Math.imul(h ^ t, 16777619) >>> 0, 2166136261);
+    return () => {
+      s = s + 0x6D2B79F5 | 0;
+      let t = Math.imul(s ^ s >>> 15, 1 | s);
+      t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+      return ((t ^ t >>> 14) >>> 0) / 4294967296;
+    };
+  }
+
+  // Expectimax: our move, then the random spawn weighted by probability, `depth` moves deep.
+  // Chance nodes enumerate every spawn when there are few, else average a fixed sample.
+  function best(b, opt = {}) {
+    const acts = actions(b);
+    if (!acts.length) return null;
+    const n = empties(b).length;
+    const depth = opt.depth || (n <= 4 ? 4 : 3); // ≤0.5 s even when tight, where it matters most
+    const W = opt.rewardWeight ?? 1, rootCap = opt.rootCap || 80, deepCap = opt.deepCap || 12;
+    const rng = seededRng(b);
+    const maxNode = (bd, d) => {
+      let v = 0; // a dead board is worth nothing; live boards score around 1.6M
+      for (const [, r] of actions(bd)) v = Math.max(v, W * r.pts + chance(r.board, d));
+      return v;
+    };
+    const chance = (bd, d) => {
+      if (d === 0) return evalBoard(bd);
+      const k = empties(bd).length, cap = d === depth - 1 ? rootCap : deepCap;
+      if (2 * k * k <= cap) return outcomes(bd).reduce((s, [o, p]) => s + p * maxNode(o, d - 1), 0);
+      let s = 0;
+      for (let j = 0; j < cap; j++) s += maxNode(spawn(bd, rng).board, d - 1);
+      return s / cap;
+    };
+    const values = acts.map(([a, r]) => [a, W * r.pts + chance(r.board, depth - 1)]).sort((x, y) => y[1] - x[1]);
+    return { action: values[0][0], values, depth };
+  }
+
+  return { MAX, COMBO, DIRS, ACTS, slide, apply, actions, isDead, spawn, outcomes, evalBoard, best };
+})();
+</script>
+
+<script>
+(() => {
+  const E = Engine;
+  const LABEL = { up: '↑ 上滑', down: '↓ 下滑', left: '← 左滑', right: '→ 右滑', skip: '跳过' };
+  const KEYS = { ArrowUp: 'up', w: 'up', W: 'up', ArrowDown: 'down', s: 'down', S: 'down',
+    ArrowLeft: 'left', a: 'left', A: 'left', ArrowRight: 'right', d: 'right', D: 'right', ' ': 'skip' };
+  const STORE = 'merge12-mobile';
+  const $ = id => document.getElementById(id);
+  const boardEl = $('board');
+  $('fonts').media = 'all';
+
+  let S, lastNew = [];
+  const desc = sp => sp.map(([, t]) => t + ' 阶').join('、');
+  function fresh() {
+    const s = E.spawn(Array(16).fill(0));
+    lastNew = s.spawned.map(x => x[0]);
+    return { board: s.board, score: s.pts, rounds: 0, over: false, log: `开局刷出 ${desc(s.spawned)}，+${s.pts}` };
+  }
+  function save() { try { localStorage.setItem(STORE, JSON.stringify(S)); } catch (e) {} }
+  function load() {
+    try {
+      const s = JSON.parse(localStorage.getItem(STORE));
+      return s && Array.isArray(s.board) && s.board.length === 16 ? s : null;
+    } catch (e) { return null; }
+  }
+
+  function act(a) {
+    if (S.over) return;
+    const r = E.apply(S.board, a);
+    if (!r) return;
+    const s = E.spawn(r.board);
+    S.score += r.pts + s.pts;
+    S.rounds++;
+    S.board = s.board;
+    lastNew = s.spawned.map(x => x[0]);
+    let msg = LABEL[a];
+    if (r.merges) msg += `：合成 ${r.merges} 次 +${r.mergePts}` + (r.combo ? `，${r.merges} 连击 +${r.combo}` : '');
+    S.log = `${msg}　|　刷出 ${desc(s.spawned) || '无'}，+${s.pts}`;
+    S.over = E.isDead(S.board);
+    update();
+  }
+
+  function render() {
+    boardEl.innerHTML = S.board.map((t, i) => `<div class="cell" role="gridcell" aria-label="${t ? t + ' 阶' : '空'}">${
+      t ? `<div class="tile t${t}${lastNew.includes(i) ? ' new' : ''}">${t}<span class="pts">${2 ** t}</span></div>` : ''}</div>`).join('');
+    $('score').textContent = S.score;
+    $('rounds').textContent = S.rounds;
+    $('avg').textContent = S.rounds ? (S.score / S.rounds).toFixed(1) : '–';
+    $('maxTier').textContent = Math.max(...S.board) || '–';
+    $('log').textContent = S.log;
+    $('over').hidden = !S.over;
+    $('overText').textContent = `本局 ${S.rounds} 回合，${S.score} 分`;
+  }
+  // The search runs in a worker so a 0.5-1 s think on a phone never freezes swipes.
+  // Only the newest board is worked on; a request overtaken by a newer one resolves to null.
+  const aiCache = new Map();
+  let aiWant = null, aiTimer = 0, autoTimer = 0, auto = false;
+  const aiWorker = (() => {
+    try {
+      const glue = `
+        let job = null, busy = false;
+        const run = () => { const j = job; job = null; postMessage({ key: j.key, res: Engine.best(j.board) }); if (job) setTimeout(run); else busy = false; };
+        onmessage = e => { job = e.data; if (!busy) { busy = true; setTimeout(run); } };`;
+      const w = new Worker(URL.createObjectURL(new Blob([$('engine').textContent, glue], { type: 'text/javascript' })));
+      w.onmessage = e => {
+        aiCache.set(e.data.key, e.data.res);
+        if (aiWant && aiWant.key === e.data.key) { aiWant.ok.forEach(f => f(e.data.res)); aiWant = null; }
+      };
+      return w;
+    } catch (e) { return null; } // no workers here: search on the page itself
+  })();
+  function aiFor(board) {
+    const key = board.join(',');
+    if (aiCache.has(key)) return Promise.resolve(aiCache.get(key));
+    if (aiCache.size > 300) aiCache.clear();
+    if (!aiWorker) { aiCache.set(key, E.best(board)); return Promise.resolve(aiCache.get(key)); }
+    return new Promise(ok => {
+      if (!aiWant || aiWant.key !== key) {
+        if (aiWant) aiWant.ok.forEach(f => f(null));
+        aiWant = { key, ok: [] };
+        aiWorker.postMessage({ key, board: board.slice() });
+      }
+      aiWant.ok.push(ok);
+    });
+  }
+  async function showAI() {
+    const key = S.board.join(',');
+    $('aiNote').textContent = '思考中…';
+    const res = await aiFor(S.board);
+    if (S.board.join(',') !== key) return; // the board moved on while thinking
+    $('aiBest').textContent = res ? LABEL[res.action] : '无路可走';
+    $('aiNote').textContent = res ? `推演 ${res.depth} 回合` : '';
+  }
+  function update() {
+    render();
+    save();
+    clearTimeout(aiTimer);
+    aiTimer = setTimeout(showAI, 20); // let the board paint before the search runs
+  }
+
+  function stopAuto() {
+    auto = false;
+    clearTimeout(autoTimer);
+    $('aiAuto').setAttribute('aria-pressed', 'false');
+  }
+  async function tick() {
+    if (!auto) return;
+    if (S.over) return stopAuto();
+    const key = S.board.join(','), res = await aiFor(S.board);
+    if (!auto) return;
+    if (S.board.join(',') === key) {
+      if (!res) return stopAuto();
+      act(res.action);
+    }
+    autoTimer = setTimeout(tick, 160);
+  }
+  $('aiAuto').onclick = () => {
+    if (auto) return stopAuto();
+    auto = true;
+    $('aiAuto').setAttribute('aria-pressed', 'true');
+    tick();
+  };
+  $('aiStep').onclick = async () => {
+    const key = S.board.join(','), res = await aiFor(S.board);
+    if (res && S.board.join(',') === key) act(res.action);
+  };
+
+  // A swipe fires as soon as the finger has travelled 24 px; a touch that barely moves is a tap = skip.
+  let p0 = null;
+  const swipe = (dx, dy) => Math.max(Math.abs(dx), Math.abs(dy)) < 24 ? null
+    : Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up');
+  boardEl.addEventListener('pointerdown', e => { p0 = [e.clientX, e.clientY]; boardEl.setPointerCapture(e.pointerId); });
+  boardEl.addEventListener('pointercancel', () => { p0 = null; });
+  boardEl.addEventListener('pointermove', e => {
+    const dir = p0 && swipe(e.clientX - p0[0], e.clientY - p0[1]);
+    if (dir) { p0 = null; act(dir); }
+  });
+  boardEl.addEventListener('pointerup', e => {
+    if (!p0) return;
+    const dir = swipe(e.clientX - p0[0], e.clientY - p0[1]);
+    p0 = null;
+    act(dir || 'skip');
+  });
+  addEventListener('keydown', e => {
+    const a = KEYS[e.key];
+    if (!a || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (a === 'skip' && e.target.closest && e.target.closest('button')) return;
+    e.preventDefault();
+    act(a);
+  });
+
+  const restart = () => { stopAuto(); S = fresh(); update(); };
+  $('newGame').onclick = restart;
+  $('again').onclick = restart;
+
+  window.claude?.hot?.snapshot?.(() => ({ S }));
+  const start = data => { S = data.S || load() || fresh(); update(); };
+  window.claude?.hot?.ready ? window.claude.hot.ready(start) : start(window.claude?.hot?.data ?? {});
+})();
+</script>
